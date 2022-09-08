@@ -22,7 +22,7 @@ const sequelize = new Sequelize(
 //     'DeltasofPassword', {
   
 //         dialect: 'mysql',
-//         host: '127.0.0.1',
+//         host: '159.223.59.238',
 //         charset: 'utf8',
 //         collate: 'utf8_general_ci',
 //         timezone:"+07:00"

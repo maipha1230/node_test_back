@@ -17,6 +17,7 @@ const {
   Users,
   Package,
   UserRequirement,
+  UserAccountDetails,
 } = require("../model/index.model");
 const { Op } = require("sequelize");
 const {
@@ -164,6 +165,17 @@ const createFlexMessage = (prop) => {
 const submitProp = async (req, res) => {
   try {
     const userId = res.locals.userId;
+
+    const userDetail = await UserAccountDetails.findOne({
+      where: {
+        userId: userId
+      },
+      attributes: ['email', 'phone']
+    })
+
+    if ((userDetail.email == null || userDetail.email == '') || (userDetail.phone == null || userDetail.phone == '')){
+      return res.send({ status: 4, message: 'ข้อมูลผู้ใช้งานของคุณยังไม่เพียงพอ กรุณาเพิ่มอิเมลและเบอร์โทร' })
+    }
 
     const dateNow = new Date();
 
@@ -366,7 +378,7 @@ const submitProp = async (req, res) => {
 
       if (multiUser.length > 0) {
        client.multicast(multiUser, multiCast) 
-       console.log('notified success');
+      //  console.log('notified success');
       }
 
       return res.send({
@@ -527,7 +539,7 @@ const getUserProperties = async (req, res) => {
             or (addi.yearBuilt between ${yearBuilt.from} and ${yearBuilt.to})  
             or (${yearBuilt.from} is null and ${yearBuilt.to} is null))
         
-        and (users.packageExpire > cast(now() as date))
+        and ((users.packageExpire > cast(now() as date ) and users.packageId != 1) or users.packageId = 1)
 
         ${sort} limit ${req.params.perPage} offset ${req.params.page}
       `);
@@ -635,7 +647,7 @@ const getUserProperties = async (req, res) => {
             or (addi.yearBuilt between ${yearBuilt.from} and ${yearBuilt.to})  
             or (${yearBuilt.from} is null and ${yearBuilt.to} is null))
         
-        and (users.packageExpire > cast(now() as date))
+        and ((users.packageExpire > cast(now() as date ) and users.packageId != 1) or users.packageId = 1)
         
         ${sort} limit ${req.params.perPage} offset ${req.params.page}
         `
@@ -714,7 +726,7 @@ const getUserProperties = async (req, res) => {
             or (user_sub_prop_additionals.yearBuilt between ${yearBuilt.from} and ${yearBuilt.to})  
             or (${yearBuilt.from} is null and ${yearBuilt.to} is null))
         
-        and (users.packageExpire > cast(now() as date))
+        and ((users.packageExpire > cast(now() as date ) and users.packageId != 1) or users.packageId = 1)
         ${sort} 
         
         `
@@ -787,6 +799,9 @@ const getUserProperties = async (req, res) => {
 };
 const getUserPropertyById = async (req, res) => {
   try {
+
+
+
     let response = await sequelize.query(
       `select user_sub_props.id as id,
               user_sub_props.title as title,
@@ -825,7 +840,10 @@ const getUserPropertyById = async (req, res) => {
               addi.garages as garages,
               addi.area as area,      
               addi.floor as floor, 
-              addi.yearBuilt as yearBuilt
+              addi.yearBuilt as yearBuilt,
+
+              users.packageExpire as packageExpire,
+              users.packageId as packageId
 
         from user_sub_props
 
@@ -835,11 +853,19 @@ const getUserPropertyById = async (req, res) => {
         inner join districts on subdistricts.DistrictId = districts.id 
         inner join provinces on districts.ProvinceId = provinces.id
         inner join user_sub_prop_additionals addi on user_sub_props.id = addi.propertyId
+        inner join users on users.id = user_sub_props.userId
               
          where user_sub_props.id = ${req.params.id}     
       `
     );
-    const addiId = response[0][0].additionalId;
+    response = response[0][0]
+    
+    let dateNow = new Date();
+    if (dateNow > response.packageExpire && response.packageId != 1){
+      return res.send({ status: 2 }) // status 2 is for user package is expired, can not watch this properrty
+    }
+    
+    const addiId = response.additionalId;
 
     let featuresList = [];
     let featuresId = await sequelize.query(
@@ -857,8 +883,6 @@ const getUserPropertyById = async (req, res) => {
       attributes: ["name_th", "name_en", "selected"],
       where: { id: { [Op.in]: featuresList } },
     });
-
-    response = response[0][0];
 
     response.features = [];
     features.forEach((feat) => {
@@ -890,11 +914,7 @@ const getUserPropertyById = async (req, res) => {
 
                detail.email as email,
                detail.phone as phone,
-               detail.organization as organization,
-               detail.facebook as facebook,
-               detail.lineID as lineID,
-               detail.instagram as instagram,
-               detail.website as website
+               detail.organization as organization
 
         from user_sub_props
 
@@ -909,7 +929,7 @@ const getUserPropertyById = async (req, res) => {
     if (agent.picture.length < 20) {
       agent.picture = `${HOST}/images/avatar/${agent.picture}`;
     }
-    res.send({ property: response, agent: agent });
+    res.send({ status: 1,  property: response, agent: agent });// status 1 is for user package not expire yet or free package
   } catch (err) {
     res.status(500).send(err.message);
   }
@@ -932,7 +952,7 @@ const getUserPropertiesHome = async (req, res) => {
       yearBuilt,
       order,
     } = req.body;
-    console.log(req.body);
+    // console.log(req.body);
 
     let sort = "";
     if (order) {
@@ -1019,7 +1039,8 @@ const getUserPropertiesHome = async (req, res) => {
             or (addi.yearBuilt between ${yearBuilt.from} and ${yearBuilt.to})  
             or (${yearBuilt.from} is null and ${yearBuilt.to} is null))
         
-        and (users.packageExpire > cast(now() as date))
+        and ((users.packageExpire > cast(now() as date ) and users.packageId != 1) or users.packageId = 1)
+
             
         ${sort} limit ${req.params.perPage} offset ${req.params.page}
       `);
@@ -1121,7 +1142,7 @@ const getUserPropertiesHome = async (req, res) => {
             or (addi.yearBuilt between ${yearBuilt.from} and ${yearBuilt.to})  
             or (${yearBuilt.from} is null and ${yearBuilt.to} is null))
         
-        and (users.packageExpire > cast(now() as date))
+        and ((users.packageExpire > cast(now() as date ) and users.packageId != 1) or users.packageId = 1)
 
         ${sort} limit ${req.params.perPage} offset ${req.params.page}
         `
@@ -1178,7 +1199,7 @@ const getPropertiesbyAgent = async (req, res) => {
       yearBuilt,
       order,
     } = req.body;
-    console.log(req.body);
+    // console.log(req.body);
 
     let sort = "";
     if (order) {

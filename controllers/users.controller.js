@@ -23,11 +23,12 @@ const {
   UserReportUser,
   MoneyTransfer,
   UserSubPropGallery,
+  Sequelize,
+  SubscriptionPeriod,
 } = require("../model/index.model");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const path = require("path");
-const { async } = require("rxjs");
 const { Op } = require("sequelize");
 
 const config = {
@@ -72,15 +73,36 @@ module.exports = {
           organization: null,
         });
 
+        let packageExpire = await Users.findOne({
+          where: {
+            id: userLatest.id,
+            packageId: { [Op.ne]: 1 }
+          },
+          attributes: ['packageExpire']
+        })
+        if (packageExpire) {
+          packageExpire = packageExpire.packageExpire
+        }  
+        
         let token = jwt.sign({ userId: response.id }, SECRET, {
           expiresIn: "2h",
         });
-        res.send({ token: token });
+        res.send({ token: token, packageExpire: packageExpire });
       } else {
-        let token = jwt.sign({ userId: existUser.id }, SECRET, {
+        let packageExpire = await Users.findOne({
+          where: {
+            userId: req.body.userId,
+            packageId: { [Op.ne]: 1 }
+          },
+          attributes: ['packageExpire']
+        })
+        if (packageExpire) {
+          packageExpire = packageExpire.packageExpire
+        }  
+        let token = jwt.sign({ userId: existUser.id}, SECRET, {
           expiresIn: "2h",
         });
-        res.send({ token: token });
+        res.send({ token: token, packageExpire: packageExpire });
       }
     } catch (err) {
       res.status(500).send(err.message);
@@ -306,6 +328,7 @@ module.exports = {
 
   updateUserProfile: async (req, res) => {
     try {
+      // console.log(req.body);
       const id = res.locals.userId;
 
       const user = await Users.update(
@@ -746,18 +769,9 @@ module.exports = {
 
   userBuyPackage: async (req, res) => {
     try {
-      console.log(req.body);
+      // console.log(req.body);
 
       let userId = res.locals.userId;
-
-      let periodId = 0;
-      if (req.body.periodId == 1) {
-        periodId = 1;
-      } else if (req.body.periodId == 3) {
-        periodId = 2;
-      } else if (req.body.periodId == 6) {
-        periodId = 3;
-      }
 
       let picture = "";
       if (req.body.gallery) {
@@ -767,16 +781,57 @@ module.exports = {
       let createPayment = await MoneyTransfer.create({
         userId: userId,
         packageId: req.body.packageId,
-        periodId: periodId,
+        periodId: req.body.periodId,
         price: req.body.price,
         pictureUrl: picture,
         dateTransfer: req.body.paymentTime,
         confirm: 0,
       });
 
+      const user = await MoneyTransfer.findOne({
+        where: {
+          userId: userId,
+          packageId: req.body.packageId,
+          periodId: req.body.periodId,
+          price: req.body.price,
+          pictureUrl: picture,
+          dateTransfer: req.body.paymentTime,
+        },
+        include: [
+          {
+            model: Users,
+            attributes: ['displayName']
+          },
+          {
+            model: Package,
+            attributes: ['name']
+          },
+          {
+            model: SubscriptionPeriod,
+            attributes: ['period']
+          }
+        ]
+      })
+
+      let date = new Date(user.dateTransfer).toLocaleString();
+      let message= {
+        user: user.User.displayName,
+        package: user.package.name,
+        period: user.subscription_period.period,
+        price: user.price,
+        date: date
+      }
+
       let slipImage = `${NGROK}/images/payment/${picture}`;
       lineNotify.notify({
-        message: slipImage,
+        message: `
+แจ้งโอนสลิป
+ชื่อผู้ใช้: ${message.user}
+แพ็คเกจ: ${message.package}
+ระยะเวลา: ${message.period} เดือน
+ราคา: ${message.price}
+โอนเมื่อ: ${message.date}
+        `,
         imageThumbnail: slipImage,
         imageFullsize: slipImage,
       });
@@ -812,7 +867,7 @@ module.exports = {
   userCancelPackage: async (req, res) => {
     try {
       const userId = res.locals.userId;
-      console.log(userId);
+      // console.log(userId);
       let userProperty = await UserSubProp.findAll({
         where: {
           userId: userId,
